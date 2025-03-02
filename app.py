@@ -80,7 +80,7 @@ st.subheader("Rare Disease Diagnostic Tool")
 with st.sidebar:
     st.markdown("<h1 style='text-align: center; font-size: 36px;'><span style='color: skyblue;'>Pheno</span><span style='color: hotpink;'>Genesis</span></h1>",
                 unsafe_allow_html=True)
-    st.image("/Users/chaitanyavarma/Developer/NORD/dna.png")
+    st.image("./dna.png")
 
     st.header("Navigation")
     app_mode = st.selectbox(
