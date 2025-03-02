@@ -82,16 +82,8 @@ Place these files in the `data/` directory or specify custom paths in the config
 - NLTK (for text processing)
 - scikit-learn (for machine learning components)
 
-
-## Contributing
-
-We welcome contributions to PhenoGenisis! Please see our [CONTRIBUTING.md](CONTRIBUTING.md) file for guidelines on how to help improve the system.
-
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-
-<div style="text-align: center">⁂</div>
 
 
