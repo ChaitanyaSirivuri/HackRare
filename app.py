@@ -125,6 +125,8 @@ if app_mode == "Upload Clinical Notes":
     # File upload for clinical notes
     uploaded_file = st.file_uploader(
         "Upload Clinical Notes", type=["txt", "pdf", "docx"])
+    st.markdown(
+        "[Donwload the test clinical notes](https://drive.google.com/uc?export=download&id=1cdQHCG_erEngle3824cG59QUyfMGO9G3)")
 
     clinical_text = None
     file_path = None
