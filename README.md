@@ -1,7 +1,4 @@
-<div style="display: flex; align-items: center; justify-content: center; gap: 20px;">
-    <img src="dna.png" class="logo" width="120"/>
-    <h1 style="font-size: 3.5rem;"><span style="color: skyblue;">Pheno</span><span style="color: hotpink;">Genesis</span></h1>
-</div>
+## PhenoGenisis
 
 ## Overview
 
