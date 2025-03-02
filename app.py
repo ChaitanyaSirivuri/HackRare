@@ -395,74 +395,72 @@ if app_mode == "Upload Clinical Notes":
                         elif st.session_state.refinement_state.get("status") == "in_progress":
                             st.write(
                                 "This case could benefit from interactive refinement to improve diagnostic accuracy.")
-
                             if st.button("Start Interactive Refinement", key="start_refinement"):
                                 st.session_state.interactive_mode = True
+                                if st.session_state.interactive_mode:
+                                    questions = st.session_state.refinement_state.get(
+                                        "questions", [])
 
-                            if st.session_state.interactive_mode:
-                                questions = st.session_state.refinement_state.get(
-                                    "questions", [])
-
-                                if questions:
-                                    st.subheader("Phenotype Questions")
-                                    st.write(
-                                        "Please answer the following questions to refine the diagnosis:")
-
-                                    # Get the current question
-                                    current_q_idx = st.session_state.current_question
-
-                                    if current_q_idx < len(questions):
-                                        current_question = questions[current_q_idx]
-
+                                    if questions:
+                                        st.subheader("Phenotype Questions")
                                         st.write(
-                                            f"**Question {current_q_idx + 1}/{len(questions)}:** {current_question['question']}")
+                                            "Please answer the following questions to refine the diagnosis:")
 
-                                        col1, col2 = st.columns(2)
-                                        with col1:
-                                            if st.button("Yes", key=f"yes_{current_q_idx}"):
-                                                # Process this answer
-                                                answers = ["y"]
-                                                new_state = components["refiner"].process_answers(
-                                                    st.session_state.refinement_state,
-                                                    answers
-                                                )
+                                        # Get the current question
+                                        current_q_idx = st.session_state.current_question
 
-                                                if "error" not in new_state:
-                                                    st.session_state.refinement_state = new_state
-                                                    st.session_state.current_question = 0
+                                        if current_q_idx < len(questions):
+                                            current_question = questions[current_q_idx]
+
+                                            st.write(
+                                                f"**Question {current_q_idx + 1}/{len(questions)}:** {current_question['question']}")
+
+                                            col1, col2 = st.columns(2)
+                                            with col1:
+                                                if st.button("Yes", key=f"yes_{current_q_idx}"):
+                                                    # Process this answer
+                                                    answers = ["y"]
+                                                    new_state = components["refiner"].process_answers(
+                                                        st.session_state.refinement_state,
+                                                        answers
+                                                    )
+
+                                                    if "error" not in new_state:
+                                                        st.session_state.refinement_state = new_state
+                                                        st.session_state.current_question = 0
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(
+                                                            f"Error: {new_state['error']}")
+
+                                            with col2:
+                                                if st.button("No", key=f"no_{current_q_idx}"):
+                                                    # Process this answer
+                                                    answers = ["n"]
+                                                    new_state = components["refiner"].process_answers(
+                                                        st.session_state.refinement_state,
+                                                        answers
+                                                    )
+
+                                                    if "error" not in new_state:
+                                                        st.session_state.refinement_state = new_state
+                                                        st.session_state.current_question = 0
+                                                        st.rerun()
+                                                    else:
+                                                        st.error(
+                                                            f"Error: {new_state['error']}")
+
+                                            # Navigation buttons
+                                            nav_col1, nav_col2 = st.columns(2)
+                                            with nav_col1:
+                                                if current_q_idx > 0 and st.button("Previous Question"):
+                                                    st.session_state.current_question -= 1
                                                     st.rerun()
-                                                else:
-                                                    st.error(
-                                                        f"Error: {new_state['error']}")
 
-                                        with col2:
-                                            if st.button("No", key=f"no_{current_q_idx}"):
-                                                # Process this answer
-                                                answers = ["n"]
-                                                new_state = components["refiner"].process_answers(
-                                                    st.session_state.refinement_state,
-                                                    answers
-                                                )
-
-                                                if "error" not in new_state:
-                                                    st.session_state.refinement_state = new_state
-                                                    st.session_state.current_question = 0
+                                            with nav_col2:
+                                                if current_q_idx < len(questions) - 1 and st.button("Next Question"):
+                                                    st.session_state.current_question += 1
                                                     st.rerun()
-                                                else:
-                                                    st.error(
-                                                        f"Error: {new_state['error']}")
-
-                                        # Navigation buttons
-                                        nav_col1, nav_col2 = st.columns(2)
-                                        with nav_col1:
-                                            if current_q_idx > 0 and st.button("Previous Question"):
-                                                st.session_state.current_question -= 1
-                                                st.rerun()
-
-                                        with nav_col2:
-                                            if current_q_idx < len(questions) - 1 and st.button("Next Question"):
-                                                st.session_state.current_question += 1
-                                                st.rerun()
 
                                     else:
                                         st.success("All questions answered!")

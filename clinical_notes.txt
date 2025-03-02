@@ -1,7 +1,1 @@
-Patient Presentation: 8-year-old male presenting with seizures, intellectual disability, and dysmorphic facial features.
-
-History of Present Illness: The patient has experienced recurrent tonic-clonic seizures since age 3, occurring approximately twice monthly despite antiepileptic medication. Parents report developmental delay with speech not developing until age 4. The patient demonstrates difficulties with learning and requires special education assistance.
-
-Physical Examination: Notable for microcephaly (head circumference -2.5 SD), hypertelorism, and low-set ears. No hepatosplenomegaly or cardiac murmurs detected.
-
-Neurological Assessment: Mild hypotonia in all extremities. Reflexes normal. No focal neurological deficits.
+John Doe is a 44-year-old male presenting with a 6-month history of progressively worsening muscle stiffness and spasms, primarily affecting his lower back and legs. The spasms are painful and occur without provocation, significantly impairing his ability to walk. He also reports increased muscle tightness and difficulty with basic movements. Examination reveals hypertonia and hyperreflexia in the lower extremities, with a wide-based gait and severe muscle stiffness in the calves and lumbar region. Diagnostic tests show positive anti-GAD antibodies and abnormal EMG findings, confirming a diagnosis of Stiff-Person Syndrome (SPS). Treatment includes **Diazepam** and **Baclofen** for muscle relaxation, along with physical therapy to improve mobility. Follow-up is scheduled in one month for further evaluation and possible IVIG therapy.
