@@ -5,14 +5,13 @@ Purpose: Identify cases that may represent novel diseases or presentations.
 Calculate novelty scores based on the relationship between patient phenotypes and known diseases.
 
 Author: Clinical Research Specialist
-Date: March 1, 2025
+Date: March 2, 2025
 """
 
 import logging
 import os
 import json
 import numpy as np
-import pandas as pd
 from pathlib import Path
 from phase4 import PhenotypeRefinementEngine
 
@@ -208,197 +207,6 @@ class NovelDiseaseDetector:
 
         return unique_phenotypes
 
-    def _calculate_phenotype_cluster_distance(self, phenotypes, disease_matches):
-        """
-        Calculate how the patient's phenotypes cluster compared to known diseases.
-
-        Args:
-            phenotypes (list): Patient phenotypes
-            disease_matches (list): Top disease matches
-
-        Returns:
-            dict: Cluster analysis results
-        """
-        # Extract present phenotype term IDs
-        patient_phenotypes = [p['term_id']
-                              for p in phenotypes if p.get('present', True)]
-
-        if not patient_phenotypes or len(disease_matches) < 2:
-            return {
-                "cluster_variance": 0.0,
-                "disease_variance": 0.0,
-                "interpretation": "Insufficient data for cluster analysis"
-            }
-
-        # Extract term information content mapping
-        term_ic = self.refinement_engine.diagnosis_analyzer.phenotype_matcher.term_information_content
-
-        # Calculate pairwise disease distances
-        disease_distances = []
-
-        for i, disease1 in enumerate(disease_matches[:10]):
-            disease1_id = disease1['disease_id']
-            disease1_terms = set(
-                self.refinement_engine.diagnosis_analyzer.phenotype_matcher.disease_to_hpo.get(disease1_id, []))
-
-            for j, disease2 in enumerate(disease_matches[:10]):
-                if i >= j:
-                    continue
-
-                disease2_id = disease2['disease_id']
-                disease2_terms = set(
-                    self.refinement_engine.diagnosis_analyzer.phenotype_matcher.disease_to_hpo.get(disease2_id, []))
-
-                # Calculate similarity using Jaccard index
-                shared_terms = disease1_terms.intersection(disease2_terms)
-                all_terms = disease1_terms.union(disease2_terms)
-
-                if not all_terms:
-                    continue
-
-                similarity = len(shared_terms) / len(all_terms)
-                distance = 1.0 - similarity
-                disease_distances.append(distance)
-
-        # Calculate patient's distance to top diseases
-        patient_distances = []
-        patient_phenotypes_set = set(patient_phenotypes)
-
-        for disease in disease_matches[:10]:
-            disease_id = disease['disease_id']
-            disease_terms = set(
-                self.refinement_engine.diagnosis_analyzer.phenotype_matcher.disease_to_hpo.get(disease_id, []))
-
-            if not disease_terms:
-                continue
-
-            shared_terms = patient_phenotypes_set.intersection(disease_terms)
-            all_terms = patient_phenotypes_set.union(disease_terms)
-
-            if not all_terms:
-                continue
-
-            similarity = len(shared_terms) / len(all_terms)
-            distance = 1.0 - similarity
-            patient_distances.append(distance)
-
-        # Calculate variance of distances
-        disease_variance = np.var(
-            disease_distances) if disease_distances else 0.0
-        patient_variance = np.var(
-            patient_distances) if patient_distances else 0.0
-
-        # Compare patient variance to disease variance
-        if disease_variance == 0:
-            cluster_ratio = 1.0
-        else:
-            cluster_ratio = patient_variance / disease_variance
-
-        # Interpret the results
-        if cluster_ratio > 2.0:
-            interpretation = "Patient phenotypes suggest a novel disease pattern that doesn't cluster with known diseases"
-        elif cluster_ratio > 1.2:
-            interpretation = "Patient phenotypes show moderate deviation from known disease clusters"
-        else:
-            interpretation = "Patient phenotypes cluster within established disease patterns"
-
-        return {
-            "cluster_ratio": cluster_ratio,
-            "patient_variance": patient_variance,
-            "disease_variance": disease_variance,
-            "interpretation": interpretation
-        }
-
-    def analyze_novelty(self, session_state=None, file_path=None):
-        """
-        Analyze potential novelty of a disease presentation using Phase 4 results.
-
-        Args:
-            session_state (dict): Session state from Phase 4
-            file_path (str): Path to clinical notes file (if session state not provided)
-
-        Returns:
-            dict: Novelty analysis results
-        """
-        self.logger.info("Analyzing disease novelty...")
-
-        try:
-            # Get diagnostic results from Phase 4 if not provided
-            if session_state is None:
-                if file_path is None:
-                    return {"error": "Either session state or file path must be provided"}
-
-                # Start a refinement session
-                session_state = self.refinement_engine.start_refinement_session(
-                    file_path)
-
-                if "error" in session_state:
-                    return {"error": session_state["error"]}
-
-            # Extract validated phenotypes and disease matches
-            validated_phenotypes = session_state.get(
-                "validated_phenotypes", [])
-            disease_matches = session_state.get("disease_matches", [])
-            confidence_assessment = session_state.get(
-                "confidence_assessment", {})
-
-            # Calculate novelty score
-            novelty_score = self._calculate_novelty_score(
-                validated_phenotypes, disease_matches)
-
-            # Interpret novelty score
-            novelty_interpretation = self._interpret_novelty_score(
-                novelty_score)
-
-            # Identify unique phenotypes
-            unique_phenotypes = self._identify_unique_phenotypes(
-                validated_phenotypes, disease_matches)
-
-            # Calculate phenotype clustering
-            cluster_analysis = self._calculate_phenotype_cluster_distance(
-                validated_phenotypes, disease_matches)
-
-            # Convert OMIM IDs to disease names in unique phenotypes
-            for phenotype in unique_phenotypes:
-                if 'relevant_diseases' in phenotype:
-                    phenotype['relevant_diseases_names'] = [
-                        self.refinement_engine._get_disease_name(disease_id)
-                        for disease_id in phenotype['relevant_diseases']
-                    ]
-
-            # Calculate confidence-novelty relationship
-            confidence_level = confidence_assessment.get(
-                "confidence_level", "unknown")
-
-            if confidence_level == "definitive" and novelty_score > self.novelty_thresholds["moderate"]:
-                confidence_novelty_relationship = "Unusual: High confidence diagnosis with significant novelty suggests phenotypic expansion"
-            elif confidence_level == "definitive":
-                confidence_novelty_relationship = "Expected: High confidence diagnosis with low novelty"
-            elif confidence_level == "probable" and novelty_score > self.novelty_thresholds["moderate"]:
-                confidence_novelty_relationship = "Concerning: Moderate confidence with high novelty suggests potentially novel disease"
-            elif novelty_score > self.novelty_thresholds["high"]:
-                confidence_novelty_relationship = "Critical: Low confidence diagnosis with high novelty strongly suggests novel disease"
-            else:
-                confidence_novelty_relationship = "Typical: Confidence and novelty levels are consistent with known disease patterns"
-
-            # Compile novelty analysis results
-            novelty_analysis = {
-                "novelty_score": novelty_score,
-                "interpretation": novelty_interpretation,
-                "unique_phenotypes": unique_phenotypes,
-                "cluster_analysis": cluster_analysis,
-                "confidence_novelty_relationship": confidence_novelty_relationship,
-                "recommendation": self._generate_recommendation(novelty_score, confidence_level)
-            }
-
-            return novelty_analysis
-
-        except Exception as e:
-            self.logger.error(f"Error analyzing novelty: {str(e)}")
-            import traceback
-            self.logger.error(traceback.format_exc())
-            return {"error": str(e)}
-
     def _generate_recommendation(self, novelty_score, confidence_level):
         """
         Generate recommendations based on novelty score and confidence level.
@@ -430,90 +238,157 @@ class NovelDiseaseDetector:
             else:
                 return "Insufficient evidence for novelty assessment. Recommend additional phenotyping and targeted testing for candidate diseases."
 
-    def process_final_diagnosis(self, session_state=None, file_path=None, output_path=None):
+    def analyze_novelty(self, session_state=None, file_path=None):
         """
-        Process a complete diagnosis through all phases (1-5).
+        Analyze potential novelty of a disease presentation using Phase 4 results.
 
         Args:
             session_state (dict): Session state from Phase 4
-            file_path (str): Path to clinical notes file
-            output_path (str): Path to save results
+            file_path (str): Path to clinical notes file (if session state not provided)
 
         Returns:
-            dict: Complete analysis including novelty assessment
+            dict: Novelty analysis results
         """
-        self.logger.info("Generating complete diagnostic report...")
+        self.logger.info("Analyzing disease novelty...")
 
         try:
-            # Get or create a session state
-            if session_state is None and file_path is not None:
-                # Start a Phase 4 session
+            # Get diagnostic results from Phase 4 if not provided
+            if session_state is None:
+                if file_path is None:
+                    return {"error": "Either session state or file path must be provided"}
+
+                # Start a refinement session
                 session_state = self.refinement_engine.start_refinement_session(
                     file_path)
 
-                if session_state.get("status") == "in_progress":
-                    # Run iterative refinement
-                    self.logger.info(
-                        "Running interactive refinement session...")
+                if "error" in session_state:
+                    return {"error": session_state["error"]}
 
-                    iteration = 1
-                    max_iterations = 3
+            # Handle the case where refinement wasn't needed (definitive diagnosis)
+            if session_state.get("status") == "complete" and "results" in session_state:
+                results = session_state["results"]
+                validated_phenotypes = results.get("validated_phenotypes", [])
+                disease_matches = results.get("disease_matches", [])
+                confidence_assessment = results.get("diagnosis_assessment", {})
+            else:
+                # Extract validated phenotypes and disease matches from session state
+                validated_phenotypes = session_state.get(
+                    "validated_phenotypes", [])
+                disease_matches = session_state.get("disease_matches", [])
+                confidence_assessment = session_state.get(
+                    "confidence_assessment", {})
 
-                    while session_state.get("status") == "in_progress" and iteration <= max_iterations:
-                        questions = session_state.get("questions", [])
+            # Calculate novelty score
+            novelty_score = self._calculate_novelty_score(
+                validated_phenotypes, disease_matches)
+
+            # Interpret novelty score
+            novelty_interpretation = self._interpret_novelty_score(
+                novelty_score)
+
+            # Identify unique phenotypes
+            unique_phenotypes = self._identify_unique_phenotypes(
+                validated_phenotypes, disease_matches)
+
+            # Generate recommendation based on novelty and confidence
+            confidence_level = confidence_assessment.get(
+                "confidence_level", "unknown")
+            recommendation = self._generate_recommendation(
+                novelty_score, confidence_level)
+
+            # Compile novelty analysis results
+            novelty_analysis = {
+                "novelty_score": novelty_score,
+                "interpretation": novelty_interpretation,
+                "unique_phenotypes": unique_phenotypes,
+                "recommendation": recommendation
+            }
+
+            return novelty_analysis
+
+        except Exception as e:
+            self.logger.error(f"Error analyzing novelty: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return {"error": str(e)}
+
+    def process_case(self, file_path, output_path=None):
+        """
+        Process a case through all phases and perform novelty analysis.
+
+        Args:
+            file_path (str): Path to clinical notes file
+            output_path (str, optional): Path to save results
+
+        Returns:
+            dict: Complete case analysis including novelty assessment
+        """
+        self.logger.info(f"Processing complete case analysis for {file_path}")
+
+        try:
+            # Start with refinement session (Phase 4)
+            refinement_state = self.refinement_engine.start_refinement_session(
+                file_path)
+
+            if "error" in refinement_state:
+                return {"error": refinement_state["error"]}
+
+            # For definitive diagnoses, we can just use the results directly
+            if refinement_state.get("status") == "complete" and "results" in refinement_state:
+                # Get diagnostic assessment from Phase 3 results
+                phase3_results = refinement_state["results"]
+                final_diagnosis = self.refinement_engine.get_final_diagnosis(
+                    refinement_state)
+            else:
+                # For cases needing refinement, get final diagnosis after refinement
+                if refinement_state.get("status") == "in_progress":
+                    # Auto-answer all questions with "yes" for automated processing
+                    # In a real implementation, this would be interactive
+                    while refinement_state.get("status") == "in_progress":
+                        questions = refinement_state.get("questions", [])
                         if not questions:
                             break
 
-                        # Generate automated answers for non-interactive mode
-                        self.logger.info(
-                            f"Automated refinement iteration {iteration}...")
+                        # Auto-generate "yes" answers
+                        answers = ["y"] * len(questions)
 
-                        answers = []
-                        for question in questions:
-                            # Default answer is 'y' (simplistic approach for automated refinement)
-                            answers.append('y')
+                        # Process answers
+                        refinement_state = self.refinement_engine.process_answers(
+                            refinement_state, answers)
 
-                        # Process the answers
-                        session_state = self.refinement_engine.process_answers(
-                            session_state, answers)
-
-                        if "error" in session_state:
-                            return {"error": session_state["error"]}
-
-                        iteration += 1
+                        if "error" in refinement_state:
+                            return {"error": refinement_state["error"]}
 
                 # Get final diagnosis
-                if session_state.get("status") == "complete":
-                    final_diagnosis = self.refinement_engine.get_final_diagnosis(
-                        session_state)
+                final_diagnosis = self.refinement_engine.get_final_diagnosis(
+                    refinement_state)
 
-                    # Update session state with final diagnosis
-                    session_state.update(final_diagnosis)
+                if "error" in final_diagnosis:
+                    return {"error": final_diagnosis["error"]}
 
-            if session_state is None:
-                return {"error": "No valid session state or file path provided"}
+                # Use the updated diagnostic results
+                phase3_results = {
+                    "validated_phenotypes": final_diagnosis["validated_phenotypes"],
+                    "disease_matches": final_diagnosis["disease_matches"]
+                }
 
             # Run novelty analysis
-            novelty_analysis = self.analyze_novelty(session_state)
+            novelty_analysis = self.analyze_novelty(
+                session_state=refinement_state)
 
-            # Compile complete results
+            # Compile comprehensive results
             complete_results = {
-                "validated_phenotypes": session_state.get("validated_phenotypes", []),
-                "disease_matches": session_state.get("disease_matches", []),
-                "confidence_assessment": session_state.get("confidence_assessment", {}),
-                "refinement_iterations": session_state.get("iteration", 1) - 1,
-                "total_phenotypes": len(session_state.get("validated_phenotypes", [])),
-                "present_phenotypes": sum(1 for p in session_state.get("validated_phenotypes", []) if p.get('present', True)),
+                "validated_phenotypes": final_diagnosis.get("validated_phenotypes", []),
+                "disease_matches": final_diagnosis.get("disease_matches", []),
+                "confidence_level": final_diagnosis.get("confidence_level", "unknown"),
+                "explanation": final_diagnosis.get("explanation", ""),
+                "recommendation": final_diagnosis.get("recommendation", ""),
+                "top_match": final_diagnosis.get("top_match", {}),
+                "refinement_iterations": final_diagnosis.get("refinement_iterations", 0),
+                "total_phenotypes": final_diagnosis.get("total_phenotypes", 0),
+                "present_phenotypes": final_diagnosis.get("present_phenotypes", 0),
                 "novelty_analysis": novelty_analysis
             }
-
-            # Convert OMIM IDs to disease names in disease matches
-            for disease in complete_results["disease_matches"]:
-                disease_id = disease.get("disease_id", "")
-                if disease_id.startswith("OMIM:"):
-                    disease_name = self.refinement_engine._get_disease_name(
-                        disease_id)
-                    disease["disease_name"] = disease_name
 
             # Save results if output path provided
             if output_path:
@@ -525,20 +400,19 @@ class NovelDiseaseDetector:
             return complete_results
 
         except Exception as e:
-            self.logger.error(f"Error processing diagnosis: {str(e)}")
+            self.logger.error(f"Error processing case: {str(e)}")
             import traceback
             self.logger.error(traceback.format_exc())
             return {"error": str(e)}
 
 
-def run_complete_analysis(file_path, output_path=None, interactive=False):
+def run_novelty_analysis(file_path, output_path=None):
     """
-    Run a complete analysis through all phases (1-5).
+    Run novelty analysis on a clinical notes file.
 
     Args:
         file_path (str): Path to clinical notes file
         output_path (str, optional): Path to save results
-        interactive (bool): Whether to run Phase 4 interactively
     """
     # Configure logging
     logging.basicConfig(
@@ -546,176 +420,61 @@ def run_complete_analysis(file_path, output_path=None, interactive=False):
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
-    # Initialize novelty detector
+    # Initialize detector
     detector = NovelDiseaseDetector()
 
-    if interactive:
-        # Run interactive Phase 4 session
-        print("\n===== STARTING INTERACTIVE REFINEMENT SESSION =====")
-        refinement_engine = detector.refinement_engine
-        session_state = refinement_engine.start_refinement_session(file_path)
+    # Process the case
+    results = detector.process_case(file_path, output_path)
 
-        if "error" in session_state:
-            print(f"Error: {session_state['error']}")
-            return
-
-        if session_state["status"] == "complete":
-            print(f"Note: {session_state['message']}")
-        else:
-            # Run interactive session
-            session_state = run_interactive_session(
-                refinement_engine, file_path, session_state)
-
-        # Get final diagnosis
-        final_diagnosis = refinement_engine.get_final_diagnosis(session_state)
-
-        # Run novelty analysis
-        novelty_analysis = detector.analyze_novelty(session_state)
-
-        # Create a results dict for consistent handling
-        results = {
-            "refinement_iterations": session_state["iteration"] - 1,
-            "total_phenotypes": len(session_state.get("validated_phenotypes", [])),
-            "present_phenotypes": sum(1 for p in session_state.get("validated_phenotypes", []) if p.get('present', True))
-        }
-    else:
-        # Run automated analysis
-        results = detector.process_final_diagnosis(
-            file_path=file_path, output_path=output_path)
-
-        if "error" in results:
-            print(f"Error: {results['error']}")
-            return
-
-        # Extract relevant parts for display
-        final_diagnosis = {
-            "confidence_level": results.get("confidence_assessment", {}).get("confidence_level", "unknown"),
-            "explanation": results.get("confidence_assessment", {}).get("explanation", ""),
-            "recommendation": results.get("confidence_assessment", {}).get("recommendation", ""),
-            "top_match": next((d for d in results.get("disease_matches", []) if d), {})
-        }
-
-        novelty_analysis = results.get("novelty_analysis", {})
+    if "error" in results:
+        print(f"Error: {results['error']}")
+        return
 
     # Display novelty analysis
-    print("\n===== NOVELTY ANALYSIS =====")
-    print(f"Novelty Score: {novelty_analysis.get('novelty_score', 0):.4f}")
+    novelty = results["novelty_analysis"]
 
-    if "interpretation" in novelty_analysis:
-        interpretation = novelty_analysis["interpretation"]
+    print("\n===== NOVELTY ANALYSIS =====")
+    print(f"Novelty Score: {novelty.get('novelty_score', 0):.4f}")
+
+    if "interpretation" in novelty:
+        interpretation = novelty["interpretation"]
         print(f"Interpretation: {interpretation.get('level', '').upper()}")
         print(f"Explanation: {interpretation.get('explanation', '')}")
 
-    if "recommendation" in novelty_analysis:
-        print(f"Recommendation: {novelty_analysis['recommendation']}")
+    if "recommendation" in novelty:
+        print(f"Recommendation: {novelty['recommendation']}")
 
-    if "unique_phenotypes" in novelty_analysis and novelty_analysis["unique_phenotypes"]:
+    if "unique_phenotypes" in novelty and novelty["unique_phenotypes"]:
         print("\n----- UNIQUE PHENOTYPES -----")
-        for i, phenotype in enumerate(novelty_analysis["unique_phenotypes"][:5]):
+        for i, phenotype in enumerate(novelty["unique_phenotypes"][:5]):
             print(
                 f"{i+1}. {phenotype['term_name']} - Uniqueness: {phenotype['uniqueness_score']:.2f}")
 
     # Display diagnostic assessment
     print("\n===== FINAL DIAGNOSIS =====")
-    print(f"Confidence Level: {final_diagnosis['confidence_level']}")
-    print(f"Explanation: {final_diagnosis['explanation']}")
-    print(f"Recommendation: {final_diagnosis['recommendation']}")
+    print(f"Confidence Level: {results['confidence_level']}")
+    print(f"Explanation: {results['explanation']}")
+    print(f"Recommendation: {results['recommendation']}")
 
-    # Display refinement information
-    if isinstance(results, dict):
-        print(
-            f"\nRefinement completed after {results.get('refinement_iterations', 0)} iterations.")
-        print(
-            f"Total phenotypes: {results.get('total_phenotypes', 0)}, Present: {results.get('present_phenotypes', 0)}")
+    print(
+        f"\nRefinement completed after {results['refinement_iterations']} iterations.")
+    print(
+        f"Total phenotypes: {results['total_phenotypes']}, Present: {results['present_phenotypes']}")
 
-    # Display top disease match
     print("\n===== TOP DISEASE MATCH =====")
-    top_match = final_diagnosis.get("top_match", {})
+    top_match = results["top_match"]
     if top_match:
         # Get proper disease name
-        disease_id = top_match.get('disease_id', '')
-        if disease_id.startswith("OMIM:"):
-            disease_name = detector.refinement_engine._get_disease_name(
-                disease_id)
-            print(f"Disease: {disease_name}")
-        else:
-            print(f"Disease: {top_match.get('disease_name', disease_id)}")
-
-        print(f"Match Score: {top_match.get('match_score', 0):.4f}")
+        disease_name = detector.refinement_engine._get_disease_name(
+            top_match['disease_id'])
+        print(f"Disease: {disease_name}")
+        print(f"Match Score: {top_match['match_score']:.4f}")
 
         if "associated_genes" in top_match and top_match["associated_genes"]:
             print(
                 f"Associated Genes: {', '.join(top_match['associated_genes'])}")
     else:
         print("No disease matches found.")
-
-
-def run_interactive_session(refinement_engine, file_path, session_state=None):
-    """
-    Run an interactive refinement session and return the final session state.
-
-    Args:
-        refinement_engine: PhenotypeRefinementEngine instance
-        file_path (str): Path to clinical notes file
-        session_state (dict, optional): Existing session state
-
-    Returns:
-        dict: Final session state
-    """
-    if session_state is None:
-        session_state = refinement_engine.start_refinement_session(file_path)
-
-    if "error" in session_state:
-        print(f"Error: {session_state['error']}")
-        return session_state
-
-    if session_state["status"] == "complete":
-        print(f"Note: {session_state['message']}")
-        return session_state
-
-    # Process iterations
-    iteration = 1
-    while session_state["status"] == "in_progress":
-        print(f"\n----- Refinement Iteration {iteration} -----")
-
-        # Show current top matches
-        top_matches = session_state["disease_matches"][:3]
-        print("\nCurrent Top Matches:")
-        for i, match in enumerate(top_matches):
-            disease_name = refinement_engine._get_disease_name(
-                match['disease_id'])
-            print(f"{i+1}. {disease_name} - Score: {match['match_score']:.4f}")
-
-        # Display questions
-        questions = session_state["questions"]
-        if not questions:
-            print("\nNo more questions available. Completing refinement.")
-            break
-
-        print("\nPlease answer the following questions (y/n):")
-        answers = []
-
-        for i, question in enumerate(questions):
-            while True:
-                answer = input(
-                    f"{i+1}. {question['question']} (y/n): ").strip().lower()
-                if answer in ['y', 'n']:
-                    answers.append(answer)
-                    break
-                else:
-                    print("Please enter 'y' for yes or 'n' for no.")
-
-        # Process answers
-        session_state = refinement_engine.process_answers(
-            session_state, answers)
-
-        if "error" in session_state:
-            print(f"Error: {session_state['error']}")
-            return session_state
-
-        iteration += 1
-
-    return session_state
 
 
 # Example usage
@@ -731,5 +490,5 @@ if __name__ == "__main__":
     if not os.path.exists(file_path):
         print(f"Error: File {file_path} not found.")
     else:
-        # Run complete analysis (set interactive=True for interactive mode)
-        run_complete_analysis(file_path, output_path, interactive=True)
+        # Run novelty analysis
+        run_novelty_analysis(file_path, output_path)

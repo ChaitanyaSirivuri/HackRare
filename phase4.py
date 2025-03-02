@@ -16,6 +16,48 @@ from phase3 import DiagnosisConfidenceAnalyzer
 import pandas as pd
 
 
+def _load_mim_titles(self, mim_titles_path):
+    """
+    Load MIM titles from the mimTitles.csv file.
+
+    Args:
+        mim_titles_path (str): Path to the mimTitles file 
+
+    Returns:
+        dict: Mapping of MIM numbers to disease names
+    """
+    mim_titles = {}
+
+    try:
+        # Modify path to use CSV instead of txt
+        csv_path = mim_titles_path
+
+        if not os.path.exists(csv_path):
+            self.logger.warning(f"MIM titles CSV file not found at {csv_path}")
+            return {}
+
+        self.logger.info(f"Loading MIM titles from {csv_path}")
+
+        # Load the CSV file using pandas
+        df = pd.read_csv(csv_path)
+
+        if 'MIM Number' in df.columns and 'Preferred Title' in df.columns:
+            df['Main Title'] = df.apply(
+                lambda row: f"{row['Preferred Title']} ({row['symbol']})" if 'symbol' in df.columns and pd.notna(
+                    row['symbol']) and row['symbol'] else row['Preferred Title'],
+                axis=1
+            )
+            mim_titles = dict(
+                zip(df['MIM Number'].astype(str), df['Main Title']))
+
+        self.logger.info(f"Loaded {len(mim_titles)} MIM titles")
+        return mim_titles
+
+    except Exception as e:
+        self.logger.error(f"Error loading MIM titles: {str(e)}")
+        return {}
+
+
 class PhenotypeRefinementEngine:
     def __init__(self,
                  hpo_path="data/hp.obo",
@@ -450,6 +492,17 @@ class PhenotypeRefinementEngine:
             if confidence_assessment["confidence_level"] == "definitive":
                 self.logger.info(
                     "Diagnosis is already definitive. No refinement needed.")
+                top_match = disease_matches[0] if disease_matches else None
+                if top_match:
+                    disease_name = self._get_disease_name(
+                        top_match['disease_id'])
+                    print('\n')
+                    print(
+                        f"Note: Diagnosis is already definitive. No refinement needed.")
+                    print('\n')
+                    print("=============FINAL DISEASE=============")
+                    print(
+                        f"Disease: {disease_name} ({top_match['disease_id']})")
                 return {
                     "status": "complete",
                     "message": "Diagnosis is already definitive. No refinement needed.",
