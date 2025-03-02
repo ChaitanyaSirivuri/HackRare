@@ -1,6 +1,22 @@
+"""
+PhenoGenisis App: Integrated Rare Disease Diagnostic System
+
+This Streamlit application combines Phases 1-5 of the PhenoGenisis system:
+1. Phenotype Ingestion & Validation
+2. Initial Phenotype Matching
+3. Dynamic Threshold Analysis
+4. Iterative Phenotype Refinement
+5. Novel Disease Flagging
+
+Author: Clinical Informatics Team
+Date: March 2, 2025
+"""
+
 import streamlit as st
 import pandas as pd
+import numpy as np
 import json
+import os
 import time
 import logging
 from pathlib import Path
@@ -82,10 +98,9 @@ with st.sidebar:
                 unsafe_allow_html=True)
     st.image("./dna.png")
 
-    st.header("Navigation")
     app_mode = st.selectbox(
-        "Diagnostic Mode",
-        ["Upload Clinical Notes", "Interactive Diagnosis",]
+        "Select Mode:",
+        ["Upload Clinical Notes", "Interactive Diagnosis"]
     )
 
     st.header("Settings")
@@ -115,8 +130,6 @@ with st.sidebar:
         )
 
 # Main app content based on selected mode
-
-
 if app_mode == "Upload Clinical Notes":
     # Load system components
     components = load_system_components()
@@ -147,6 +160,7 @@ if app_mode == "Upload Clinical Notes":
             st.session_state.file_content = "Binary content (cannot display preview)"
 
     # Process Button
+    # Process Button
     if st.button("Process Clinical Notes", type="primary"):
         if uploaded_file is not None or clinical_text:
             with st.spinner("Processing Clinical Notes..."):
@@ -157,90 +171,12 @@ if app_mode == "Upload Clinical Notes":
                         file_path)
                     st.session_state.phenotypes = phenotypes
 
-                    st.subheader("Validated Phenotypes")
-                    phenotype_data = []
-                    for p in st.session_state.phenotypes:
-                        phenotype_data.append({
-                            "Term ID": p.get("term_id", ""),
-                            "Term Name": p.get("term_name", ""),
-                            "Status": "Present" if p.get("present", True) else "Absent",
-                            "Confidence": f"{p.get('confidence', 0)*100:.1f}%",
-                            "Source": p.get("source", "extracted")
-                        })
-
-                    phenotype_df = pd.DataFrame(phenotype_data)
-                    st.dataframe(phenotype_df, use_container_width=True)
-
-                    # Visualization
-                    st.subheader("Phenotype Visualization")
-                    present_count = sum(
-                        1 for p in st.session_state.phenotypes if p.get("present", True))
-                    absent_count = len(
-                        st.session_state.phenotypes) - present_count
-
-                    fig = px.bar(
-                        x=["Present", "Absent"],
-                        y=[present_count, absent_count],
-                        labels={"x": "Status", "y": "Count"},
-                        title="Phenotype Status Distribution"
-                    )
-
-                    fig.update_traces(marker_color=["#0068c9", "#ff5252"])
-                    st.plotly_chart(fig, use_container_width=True)
-
                     # Phase 2: Match Diseases
                     st.info("Phase 2: Matching diseases...")
                     phase2_results = components["matcher"].match_diseases(
                         file_path)
                     disease_matches = phase2_results.get("disease_matches", [])
                     st.session_state.disease_matches = disease_matches
-
-                    st.subheader("Disease Matches")
-
-                    if st.session_state.disease_matches:
-                        # Convert to DataFrame for easier display
-                        disease_data = []
-                        for i, d in enumerate(st.session_state.disease_matches[:max_diseases]):
-                            # Get proper disease name if available
-                            disease_name = d.get(
-                                "disease_name", d.get("disease_id", "Unknown"))
-                            if d.get("disease_id", "").startswith("OMIM:"):
-                                try:
-                                    mim_id = d["disease_id"].split(":")[1]
-                                    if hasattr(components["refiner"], "mim_titles") and components["refiner"].mim_titles and mim_id in components["refiner"].mim_titles:
-                                        disease_name = components["refiner"].mim_titles[mim_id]
-                                except:
-                                    pass
-
-                            disease_data.append({
-                                "Rank": i+1,
-                                "Disease": disease_name,
-                                "ID": d.get("disease_id", ""),
-                                "Match Score": f"{d.get('match_score', 0)*100:.1f}%",
-                                "Matched Phenotypes": d.get("matched_phenotypes", ""),
-                                "Associated Genes": ", ".join(d.get("associated_genes", []))
-                            })
-
-                        disease_df = pd.DataFrame(disease_data)
-                        st.dataframe(disease_df, use_container_width=True)
-
-                        # Visualization
-                        st.subheader("Top Disease Matches")
-
-                        if len(st.session_state.disease_matches) > 0:
-                            top_n = min(
-                                10, len(st.session_state.disease_matches))
-                            fig = px.bar(
-                                x=[d.get("disease_name", d.get("disease_id", ""))[:30]
-                                    for d in st.session_state.disease_matches[:top_n]],
-                                y=[d.get("match_score", 0)
-                                    for d in st.session_state.disease_matches[:top_n]],
-                                labels={"x": "Disease", "y": "Match Score"},
-                                title="Top Disease Matches by Score"
-                            )
-                            st.plotly_chart(fig, use_container_width=True)
-                    else:
-                        st.warning("No disease matches found.")
 
                     # Phase 3: Analyze Confidence
                     st.info("Phase 3: Analyzing diagnostic confidence...")
@@ -249,252 +185,11 @@ if app_mode == "Upload Clinical Notes":
                     st.session_state.diagnosis_assessment = phase3_results.get(
                         "diagnosis_assessment", {})
 
-                    if st.session_state.phenotypes:
-                        st.header("Diagnostic Results")
-
-                    # Disease Matches Tab
-
-                    # Diagnostic Assessment Tab
-                        if st.session_state.diagnosis_assessment:
-                            assessment = st.session_state.diagnosis_assessment
-
-                            # Confidence level badge
-                            confidence_level = assessment.get(
-                                "confidence_level", "unknown")
-                            confidence_color = {
-                                "definitive": "green",
-                                "probable": "orange",
-                                "possible": "blue",
-                                "novel": "purple",
-                                "unknown": "gray"
-                            }.get(confidence_level, "gray")
-
-                            st.markdown(f"""
-                            <div style="background-color: {confidence_color}; padding: 10px; border-radius: 5px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px;">
-                                Confidence Level: {confidence_level.upper()}
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.subheader("Diagnostic Assessment")
-                                st.write(
-                                    f"**Explanation:** {assessment.get('explanation', 'Not available')}")
-                                st.write(
-                                    f"**Recommendation:** {assessment.get('recommendation', 'Not available')}")
-                                st.write(
-                                    f"**Threshold Used:** {assessment.get('threshold_used', 0):.2f}")
-                                st.write(
-                                    f"**Phenotype Count:** {assessment.get('phenotype_count', 0)}")
-
-                            with col2:
-                                if assessment.get("top_match"):
-                                    st.subheader("Top Disease Match")
-                                    top_match = assessment.get("top_match")
-
-                                    # Get proper disease name if available
-                                    disease_name = top_match.get(
-                                        "disease_name", top_match.get("disease_id", "Unknown"))
-                                    if top_match.get("disease_id", "").startswith("OMIM:"):
-                                        try:
-                                            mim_id = top_match["disease_id"].split(":")[
-                                                1]
-                                            if hasattr(components["refiner"], "mim_titles") and components["refiner"].mim_titles and mim_id in components["refiner"].mim_titles:
-                                                disease_name = components["refiner"].mim_titles[mim_id]
-                                        except:
-                                            pass
-
-                                    st.write(f"**Disease:** {disease_name}")
-                                    st.write(
-                                        f"**ID:** {top_match.get('disease_id', 'Unknown')}")
-                                    st.write(
-                                        f"**Match Score:** {top_match.get('match_score', 0)*100:.1f}%")
-                                    st.write(
-                                        f"**Matched Phenotypes:** {top_match.get('matched_phenotypes', 'Unknown')}")
-                                    if top_match.get("associated_genes"):
-                                        st.write(
-                                            f"**Associated Genes:** {', '.join(top_match.get('associated_genes', []))}")
-
-                            # Threshold visualization
-                            st.subheader("Confidence Threshold Analysis")
-
-                            # Create gauge chart for confidence
-                            if assessment.get("top_match") and assessment.get("threshold_used"):
-                                top_score = assessment["top_match"].get(
-                                    "match_score", 0)
-                                threshold = assessment["threshold_used"]
-
-                                fig = go.Figure(go.Indicator(
-                                    mode="gauge+number",
-                                    value=top_score,
-                                    domain={"x": [0, 1], "y": [0, 1]},
-                                    title={"text": "Match Score vs Threshold"},
-                                    gauge={
-                                        "axis": {"range": [0, 1]},
-                                        "bar": {"color": "darkblue"},
-                                        "steps": [
-                                            {"range": [0, threshold],
-                                                "color": "lightgray"},
-                                            {"range": [threshold, 1],
-                                                "color": "lightgreen"}
-                                        ],
-                                        "threshold": {
-                                            "line": {"color": "red", "width": 4},
-                                            "thickness": 0.75,
-                                            "value": threshold
-                                        }
-                                    }
-                                ))
-
-                                st.plotly_chart(fig, use_container_width=True)
-                        else:
-                            st.warning("No diagnostic assessment available.")
-
                     # Initialize Phase 4 session
                     st.info("Phase 4: Preparing refinement session...")
                     refinement_state = components["refiner"].start_refinement_session(
                         file_path)
                     st.session_state.refinement_state = refinement_state
-
-                    st.subheader("Interactive Phenotype Refinement")
-
-                    if st.session_state.refinement_state:
-                        if st.session_state.refinement_state.get("status") == "complete" and "message" in st.session_state.refinement_state:
-                            st.info(
-                                st.session_state.refinement_state["message"])
-
-                            if "results" in st.session_state.refinement_state:
-                                final_diagnosis = components["refiner"].get_final_diagnosis(
-                                    st.session_state.refinement_state)
-
-                                if "error" not in final_diagnosis:
-                                    st.subheader("Final Diagnosis")
-                                    st.write(
-                                        f"**Confidence Level:** {final_diagnosis.get('confidence_level', 'Unknown')}")
-                                    st.write(
-                                        f"**Explanation:** {final_diagnosis.get('explanation', 'Not available')}")
-                                    st.write(
-                                        f"**Recommendation:** {final_diagnosis.get('recommendation', 'Not available')}")
-
-                                    if "top_match" in final_diagnosis and final_diagnosis["top_match"]:
-                                        top_match = final_diagnosis["top_match"]
-
-                                        # Get proper disease name
-                                        disease_name = components["refiner"]._get_disease_name(
-                                            top_match['disease_id'])
-
-                                        st.write(
-                                            f"**Disease:** {disease_name}")
-                                        st.write(
-                                            f"**Match Score:** {top_match.get('match_score', 0)*100:.1f}%")
-
-                                        if "associated_genes" in top_match and top_match["associated_genes"]:
-                                            st.write(
-                                                f"**Associated Genes:** {', '.join(top_match['associated_genes'])}")
-
-                        elif st.session_state.refinement_state.get("status") == "in_progress":
-                            st.write(
-                                "This case could benefit from interactive refinement to improve diagnostic accuracy.")
-                            if st.button("Start Interactive Refinement", key="start_refinement"):
-                                st.session_state.interactive_mode = True
-                                if st.session_state.interactive_mode:
-                                    questions = st.session_state.refinement_state.get(
-                                        "questions", [])
-
-                                    if questions:
-                                        st.subheader("Phenotype Questions")
-                                        st.write(
-                                            "Please answer the following questions to refine the diagnosis:")
-
-                                        # Get the current question
-                                        current_q_idx = st.session_state.current_question
-
-                                        if current_q_idx < len(questions):
-                                            current_question = questions[current_q_idx]
-
-                                            st.write(
-                                                f"**Question {current_q_idx + 1}/{len(questions)}:** {current_question['question']}")
-
-                                            col1, col2 = st.columns(2)
-                                            with col1:
-                                                if st.button("Yes", key=f"yes_{current_q_idx}"):
-                                                    # Process this answer
-                                                    answers = ["y"]
-                                                    new_state = components["refiner"].process_answers(
-                                                        st.session_state.refinement_state,
-                                                        answers
-                                                    )
-
-                                                    if "error" not in new_state:
-                                                        st.session_state.refinement_state = new_state
-                                                        st.session_state.current_question = 0
-                                                        st.rerun()
-                                                    else:
-                                                        st.error(
-                                                            f"Error: {new_state['error']}")
-
-                                            with col2:
-                                                if st.button("No", key=f"no_{current_q_idx}"):
-                                                    # Process this answer
-                                                    answers = ["n"]
-                                                    new_state = components["refiner"].process_answers(
-                                                        st.session_state.refinement_state,
-                                                        answers
-                                                    )
-
-                                                    if "error" not in new_state:
-                                                        st.session_state.refinement_state = new_state
-                                                        st.session_state.current_question = 0
-                                                        st.rerun()
-                                                    else:
-                                                        st.error(
-                                                            f"Error: {new_state['error']}")
-
-                                            # Navigation buttons
-                                            nav_col1, nav_col2 = st.columns(2)
-                                            with nav_col1:
-                                                if current_q_idx > 0 and st.button("Previous Question"):
-                                                    st.session_state.current_question -= 1
-                                                    st.rerun()
-
-                                            with nav_col2:
-                                                if current_q_idx < len(questions) - 1 and st.button("Next Question"):
-                                                    st.session_state.current_question += 1
-                                                    st.rerun()
-
-                                    else:
-                                        st.success("All questions answered!")
-
-                                        if st.session_state.refinement_state.get("status") == "complete":
-                                            final_diagnosis = components["refiner"].get_final_diagnosis(
-                                                st.session_state.refinement_state)
-
-                                            if "error" not in final_diagnosis:
-                                                st.subheader("Final Diagnosis")
-                                                st.write(
-                                                    f"**Confidence Level:** {final_diagnosis.get('confidence_level', 'Unknown')}")
-                                                st.write(
-                                                    f"**Explanation:** {final_diagnosis.get('explanation', 'Not available')}")
-                                                st.write(
-                                                    f"**Recommendation:** {final_diagnosis.get('recommendation', 'Not available')}")
-
-                                                if "top_match" in final_diagnosis and final_diagnosis["top_match"]:
-                                                    top_match = final_diagnosis["top_match"]
-
-                                                    # Get proper disease name
-                                                    disease_name = components["refiner"]._get_disease_name(
-                                                        top_match['disease_id'])
-
-                                                    st.write(
-                                                        f"**Disease:** {disease_name}")
-                                                    st.write(
-                                                        f"**Match Score:** {top_match.get('match_score', 0)*100:.1f}%")
-                                else:
-                                    st.info("No more questions available.")
-                                    st.session_state.interactive_mode = False
-                    else:
-                        st.warning(
-                            "No refinement state available. Please process clinical notes first.")
 
                     # Phase 5: Analyze Novelty
                     st.info("Phase 5: Analyzing novelty...")
@@ -517,181 +212,516 @@ if app_mode == "Upload Clinical Notes":
         else:
             st.warning(
                 "Please upload a file or enter clinical notes to process.")
-        st.subheader("Novelty Analysis")
 
-        # Check if novelty analysis is available
-        if "novelty_analysis" in st.session_state and st.session_state.novelty_analysis:
-            novelty = st.session_state.novelty_analysis
+    # Display Results (if available)
+    if st.session_state.phenotypes:
+        st.header("Diagnostic Results")
 
-            if "error" in novelty:
-                st.error(f"Error in novelty analysis: {novelty['error']}")
-            elif not hasattr(components["detector"], "analyze_novelty"):
-                st.info(
-                    "Novelty analysis functionality is not yet available in Phase 5.")
-            else:
-                # Display actual novelty results
-                col1, col2 = st.columns(2)
+        # Create tabs for different phases
+        tabs = st.tabs(["Phenotypes", "Disease Matches",
+                       "Diagnostic Assessment", "Refinement", "Novelty Analysis"])
 
-                with col1:
-                    st.metric(
-                        label="Novelty Score",
-                        value=f"{novelty.get('novelty_score', 0)*100:.1f}%",
-                        help="Higher scores indicate greater likelihood of a novel disease or phenotypic expansion"
+        # Phenotypes Tab
+        with tabs[0]:
+            st.subheader("Validated Phenotypes")
+
+            # Convert to DataFrame for easier display
+            phenotype_data = []
+            for p in st.session_state.phenotypes:
+                phenotype_data.append({
+                    "Term ID": p.get("term_id", ""),
+                    "Term Name": p.get("term_name", ""),
+                    "Status": "Present" if p.get("present", True) else "Absent",
+                    "Confidence": f"{p.get('confidence', 0)*100:.1f}%",
+                    "Source": p.get("source", "extracted")
+                })
+
+            phenotype_df = pd.DataFrame(phenotype_data)
+            st.dataframe(phenotype_df, use_container_width=True)
+
+            # Visualization
+            st.subheader("Phenotype Visualization")
+            present_count = sum(
+                1 for p in st.session_state.phenotypes if p.get("present", True))
+            absent_count = len(st.session_state.phenotypes) - present_count
+
+            fig = px.bar(
+                x=["Present", "Absent"],
+                y=[present_count, absent_count],
+                labels={"x": "Status", "y": "Count"},
+                title="Phenotype Status Distribution",
+                color_discrete_sequence=["#0068c9", "#ff5252"]
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Disease Matches Tab
+        with tabs[1]:
+            st.subheader("Disease Matches")
+
+            if st.session_state.disease_matches:
+                # Convert to DataFrame for easier display
+                disease_data = []
+                for i, d in enumerate(st.session_state.disease_matches[:max_diseases]):
+                    # Get proper disease name if available
+                    disease_name = d.get(
+                        "disease_name", d.get("disease_id", "Unknown"))
+                    if d.get("disease_id", "").startswith("OMIM:"):
+                        try:
+                            mim_id = d["disease_id"].split(":")[1]
+                            if hasattr(components["refiner"], "mim_titles") and components["refiner"].mim_titles and mim_id in components["refiner"].mim_titles:
+                                disease_name = components["refiner"].mim_titles[mim_id]
+                        except:
+                            pass
+
+                    disease_data.append({
+                        "Rank": i+1,
+                        "Disease": disease_name,
+                        "ID": d.get("disease_id", ""),
+                        "Match Score": f"{d.get('match_score', 0)*100:.1f}%",
+                        "Matched Phenotypes": d.get("matched_phenotypes", ""),
+                        "Associated Genes": ", ".join(d.get("associated_genes", []))
+                    })
+
+                disease_df = pd.DataFrame(disease_data)
+                st.dataframe(disease_df, use_container_width=True)
+
+                # Visualization
+                st.subheader("Top Disease Matches")
+
+                if len(st.session_state.disease_matches) > 0:
+                    top_n = min(10, len(st.session_state.disease_matches))
+                    fig = px.bar(
+                        x=[d.get("disease_name", d.get("disease_id", ""))[:30]
+                           for d in st.session_state.disease_matches[:top_n]],
+                        y=[d.get("match_score", 0)
+                           for d in st.session_state.disease_matches[:top_n]],
+                        labels={"x": "Disease", "y": "Match Score"},
+                        title="Top Disease Matches by Score"
                     )
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No disease matches found.")
+
+        # Diagnostic Assessment Tab
+        with tabs[2]:
+            if st.session_state.diagnosis_assessment:
+                assessment = st.session_state.diagnosis_assessment
+
+                # Confidence level badge
+                confidence_level = assessment.get(
+                    "confidence_level", "unknown")
+                confidence_color = {
+                    "definitive": "green",
+                    "probable": "orange",
+                    "possible": "blue",
+                    "novel": "purple",
+                    "unknown": "gray"
+                }.get(confidence_level, "gray")
+
+                st.markdown(f"""
+                <div style="background-color: {confidence_color}; padding: 10px; border-radius: 5px; color: white; font-weight: bold; text-align: center; margin-bottom: 20px;">
+                  Confidence Level: {confidence_level.upper()}
+                </div>
+                """, unsafe_allow_html=True)
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("Diagnostic Assessment")
+                    st.write(
+                        f"**Explanation:** {assessment.get('explanation', 'Not available')}")
+                    st.write(
+                        f"**Recommendation:** {assessment.get('recommendation', 'Not available')}")
+                    st.write(
+                        f"**Threshold Used:** {assessment.get('threshold_used', 0):.2f}")
+                    st.write(
+                        f"**Phenotype Count:** {assessment.get('phenotype_count', 0)}")
 
                 with col2:
-                    if "interpretation" in novelty:
-                        interpretation = novelty["interpretation"]
-                        st.write(
-                            f"**Level:** {interpretation.get('level', 'unknown').upper()}")
-                        st.write(
-                            f"**Explanation:** {interpretation.get('explanation', 'Not available')}")
+                    if assessment.get("top_match"):
+                        st.subheader("Top Disease Match")
+                        top_match = assessment.get("top_match")
 
-                # Novelty gauge chart if score is available
-                if "novelty_score" in novelty:
+                        # Get proper disease name if available
+                        disease_name = top_match.get(
+                            "disease_name", top_match.get("disease_id", "Unknown"))
+                        if top_match.get("disease_id", "").startswith("OMIM:"):
+                            try:
+                                mim_id = top_match["disease_id"].split(":")[1]
+                                if hasattr(components["refiner"], "mim_titles") and components["refiner"].mim_titles and mim_id in components["refiner"].mim_titles:
+                                    disease_name = components["refiner"].mim_titles[mim_id]
+                            except:
+                                pass
+
+                        st.write(f"**Disease:** {disease_name}")
+                        st.write(
+                            f"**ID:** {top_match.get('disease_id', 'Unknown')}")
+                        st.write(
+                            f"**Match Score:** {top_match.get('match_score', 0)*100:.1f}%")
+                        st.write(
+                            f"**Matched Phenotypes:** {top_match.get('matched_phenotypes', 'Unknown')}")
+                        if top_match.get("associated_genes"):
+                            st.write(
+                                f"**Associated Genes:** {', '.join(top_match.get('associated_genes', []))}")
+
+                # Threshold visualization
+                st.subheader("Confidence Threshold Analysis")
+
+                # Create gauge chart for confidence
+                if assessment.get("top_match") and assessment.get("threshold_used"):
+                    top_score = assessment["top_match"].get("match_score", 0)
+                    threshold = assessment["threshold_used"]
+
                     fig = go.Figure(go.Indicator(
                         mode="gauge+number",
-                        value=novelty.get('novelty_score', 0),
+                        value=top_score,
                         domain={"x": [0, 1], "y": [0, 1]},
-                        title={"text": "Novelty Score"},
+                        title={"text": "Match Score vs Threshold"},
                         gauge={
                             "axis": {"range": [0, 1]},
                             "bar": {"color": "darkblue"},
                             "steps": [
-                                {"range": [0, 0.4], "color": "green"},
-                                {"range": [0.4, 0.6], "color": "yellow"},
-                                {"range": [0.6, 0.8], "color": "orange"},
-                                {"range": [0.8, 1], "color": "red"}
+                                {"range": [0, threshold],
+                                    "color": "lightgray"},
+                                {"range": [threshold, 1],
+                                    "color": "lightgreen"}
                             ],
                             "threshold": {
-                                "line": {"color": "black", "width": 4},
+                                "line": {"color": "red", "width": 4},
                                 "thickness": 0.75,
-                                "value": novelty.get('novelty_score', 0)
+                                "value": threshold
                             }
                         }
                     ))
 
                     st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No diagnostic assessment available.")
 
-                # Show unique phenotypes if available
-                if "unique_phenotypes" in novelty and novelty["unique_phenotypes"]:
-                    st.subheader("Unique Phenotypes")
+        # Refinement Tab
+        with tabs[3]:
+            st.subheader("Interactive Phenotype Refinement")
+
+            if st.session_state.refinement_state:
+                if st.session_state.refinement_state.get("status") == "complete" and "message" in st.session_state.refinement_state:
+                    st.info(st.session_state.refinement_state["message"])
+
+                    if "results" in st.session_state.refinement_state:
+                        final_diagnosis = components["refiner"].get_final_diagnosis(
+                            st.session_state.refinement_state)
+
+                        if "error" not in final_diagnosis:
+                            st.subheader("Final Diagnosis")
+                            st.write(
+                                f"**Confidence Level:** {final_diagnosis.get('confidence_level', 'Unknown')}")
+                            st.write(
+                                f"**Explanation:** {final_diagnosis.get('explanation', 'Not available')}")
+                            st.write(
+                                f"**Recommendation:** {final_diagnosis.get('recommendation', 'Not available')}")
+
+                            if "top_match" in final_diagnosis and final_diagnosis["top_match"]:
+                                top_match = final_diagnosis["top_match"]
+
+                                # Get proper disease name
+                                disease_name = components["refiner"]._get_disease_name(
+                                    top_match['disease_id'])
+
+                                st.write(f"**Disease:** {disease_name}")
+                                st.write(
+                                    f"**Match Score:** {top_match.get('match_score', 0)*100:.1f}%")
+
+                                if "associated_genes" in top_match and top_match["associated_genes"]:
+                                    st.write(
+                                        f"**Associated Genes:** {', '.join(top_match['associated_genes'])}")
+
+                elif st.session_state.refinement_state.get("status") == "in_progress":
                     st.write(
-                        "These phenotypes are uncommon in known disease entities and may indicate a novel syndrome:")
+                        "This case could benefit from interactive refinement to improve diagnostic accuracy.")
 
-                    unique_data = []
-                    for i, p in enumerate(novelty["unique_phenotypes"][:10]):
-                        unique_data.append({
-                            "Rank": i+1,
-                            "Term": p.get("term_name", ""),
-                            "ID": p.get("term_id", ""),
-                            "Uniqueness": f"{p.get('uniqueness_score', 0)*100:.1f}%",
-                            "Information Content": f"{p.get('information_content', 0):.2f}"
-                        })
+                    if st.button("Start Interactive Refinement", key="start_refinement"):
+                        st.session_state.interactive_mode = True
 
-                    unique_df = pd.DataFrame(unique_data)
-                    st.dataframe(unique_df, use_container_width=True)
+                    if st.session_state.interactive_mode:
+                        questions = st.session_state.refinement_state.get(
+                            "questions", [])
 
-                # Display recommendations if available
-                if "recommendation" in novelty:
-                    st.subheader("Recommendations")
-                    st.info(novelty["recommendation"])
-            st.subheader("Export Results")
+                        if questions:
+                            st.subheader("Phenotype Questions")
+                            st.write(
+                                "Please answer the following questions to refine the diagnosis:")
 
-            col1, col2 = st.columns(2)
+                            # Get the current question
+                            current_q_idx = st.session_state.current_question
 
-            with col1:
-                if st.button("Export to JSON"):
-                    # Prepare export data
-                    export_data = {
-                        "session_id": st.session_state.session_id,
-                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-                        "file_content": st.session_state.file_content,
-                        "validated_phenotypes": st.session_state.phenotypes,
-                        "disease_matches": st.session_state.disease_matches,
-                        "diagnosis_assessment": st.session_state.diagnosis_assessment,
-                        "novelty_analysis": st.session_state.novelty_analysis
-                    }
+                            if current_q_idx < len(questions):
+                                current_question = questions[current_q_idx]
 
-                    # Convert to JSON string
-                    json_str = json.dumps(export_data, indent=2)
+                                st.write(
+                                    f"**Question {current_q_idx + 1}/{len(questions)}:** {current_question['question']}")
 
-                    # Create a download link
-                    st.download_button(
-                        label="Download JSON",
-                        data=json_str,
-                        file_name=f"PhenoGenisis_results_{st.session_state.session_id}.json",
-                        mime="application/json"
-                    )
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    if st.button("Yes", key=f"yes_{current_q_idx}"):
+                                        # Process this answer
+                                        answers = ["y"]
+                                        new_state = components["refiner"].process_answers(
+                                            st.session_state.refinement_state,
+                                            answers
+                                        )
 
-                with col2:
-                    if st.button("Export to CSV"):
-                        # Prepare phenotypes CSV
-                        phenotype_data = []
-                        for p in st.session_state.phenotypes:
-                            phenotype_data.append({
-                                "Term ID": p.get("term_id", ""),
-                                "Term Name": p.get("term_name", ""),
-                                "Status": "Present" if p.get("present", True) else "Absent",
-                                "Confidence": p.get("confidence", 0),
-                                "Source": p.get("source", "extracted")
-                            })
+                                        if "error" not in new_state:
+                                            st.session_state.refinement_state = new_state
+                                            st.session_state.current_question = 0
+                                            st.rerun()
+                                        else:
+                                            st.error(
+                                                f"Error: {new_state['error']}")
 
-                        phenotype_df = pd.DataFrame(phenotype_data)
+                                with col2:
+                                    if st.button("No", key=f"no_{current_q_idx}"):
+                                        # Process this answer
+                                        answers = ["n"]
+                                        new_state = components["refiner"].process_answers(
+                                            st.session_state.refinement_state,
+                                            answers
+                                        )
 
-                        # Prepare disease matches CSV
-                        disease_data = []
-                        for i, d in enumerate(st.session_state.disease_matches):
-                            disease_data.append({
+                                        if "error" not in new_state:
+                                            st.session_state.refinement_state = new_state
+                                            st.session_state.current_question = 0
+                                            st.rerun()
+                                        else:
+                                            st.error(
+                                                f"Error: {new_state['error']}")
+
+                                # Navigation buttons
+                                nav_col1, nav_col2 = st.columns(2)
+                                with nav_col1:
+                                    if current_q_idx > 0 and st.button("Previous Question"):
+                                        st.session_state.current_question -= 1
+                                        st.rerun()
+
+                                with nav_col2:
+                                    if current_q_idx < len(questions) - 1 and st.button("Next Question"):
+                                        st.session_state.current_question += 1
+                                        st.rerun()
+
+                            else:
+                                st.success("All questions answered!")
+
+                                if st.session_state.refinement_state.get("status") == "complete":
+                                    final_diagnosis = components["refiner"].get_final_diagnosis(
+                                        st.session_state.refinement_state)
+
+                                    if "error" not in final_diagnosis:
+                                        st.subheader("Final Diagnosis")
+                                        st.write(
+                                            f"**Confidence Level:** {final_diagnosis.get('confidence_level', 'Unknown')}")
+                                        st.write(
+                                            f"**Explanation:** {final_diagnosis.get('explanation', 'Not available')}")
+                                        st.write(
+                                            f"**Recommendation:** {final_diagnosis.get('recommendation', 'Not available')}")
+
+                                        if "top_match" in final_diagnosis and final_diagnosis["top_match"]:
+                                            top_match = final_diagnosis["top_match"]
+
+                                            # Get proper disease name
+                                            disease_name = components["refiner"]._get_disease_name(
+                                                top_match['disease_id'])
+
+                                            st.write(
+                                                f"**Disease:** {disease_name}")
+                                            st.write(
+                                                f"**Match Score:** {top_match.get('match_score', 0)*100:.1f}%")
+                        else:
+                            st.info("No more questions available.")
+                            st.session_state.interactive_mode = False
+            else:
+                st.warning(
+                    "No refinement state available. Please process clinical notes first.")
+
+        # Novelty Analysis Tab
+        with tabs[4]:
+            st.subheader("Novelty Analysis")
+
+            # Check if novelty analysis is available
+            if "novelty_analysis" in st.session_state and st.session_state.novelty_analysis:
+                novelty = st.session_state.novelty_analysis
+
+                if "error" in novelty:
+                    st.error(f"Error in novelty analysis: {novelty['error']}")
+                elif not hasattr(components["detector"], "analyze_novelty"):
+                    st.info(
+                        "Novelty analysis functionality is not yet available in Phase 5.")
+                else:
+                    # Display actual novelty results
+                    col1, col2 = st.columns(2)
+
+                    with col1:
+                        st.metric(
+                            label="Novelty Score",
+                            value=f"{novelty.get('novelty_score', 0)*100:.1f}%",
+                            help="Higher scores indicate greater likelihood of a novel disease or phenotypic expansion"
+                        )
+
+                    with col2:
+                        if "interpretation" in novelty:
+                            interpretation = novelty["interpretation"]
+                            st.write(
+                                f"**Level:** {interpretation.get('level', 'unknown').upper()}")
+                            st.write(
+                                f"**Explanation:** {interpretation.get('explanation', 'Not available')}")
+
+                    # Novelty gauge chart if score is available
+                    if "novelty_score" in novelty:
+                        fig = go.Figure(go.Indicator(
+                            mode="gauge+number",
+                            value=novelty.get('novelty_score', 0),
+                            domain={"x": [0, 1], "y": [0, 1]},
+                            title={"text": "Novelty Score"},
+                            gauge={
+                                "axis": {"range": [0, 1]},
+                                "bar": {"color": "darkblue"},
+                                "steps": [
+                                    {"range": [0, 0.4], "color": "green"},
+                                    {"range": [0.4, 0.6], "color": "yellow"},
+                                    {"range": [0.6, 0.8], "color": "orange"},
+                                    {"range": [0.8, 1], "color": "red"}
+                                ],
+                                "threshold": {
+                                    "line": {"color": "black", "width": 4},
+                                    "thickness": 0.75,
+                                    "value": novelty.get('novelty_score', 0)
+                                }
+                            }
+                        ))
+
+                        st.plotly_chart(fig, use_container_width=True)
+
+                    # Show unique phenotypes if available
+                    if "unique_phenotypes" in novelty and novelty["unique_phenotypes"]:
+                        st.subheader("Unique Phenotypes")
+                        st.write(
+                            "These phenotypes are uncommon in known disease entities and may indicate a novel syndrome:")
+
+                        unique_data = []
+                        for i, p in enumerate(novelty["unique_phenotypes"][:10]):
+                            unique_data.append({
                                 "Rank": i+1,
-                                "Disease": d.get("disease_name", ""),
-                                "ID": d.get("disease_id", ""),
-                                "Match Score": d.get("match_score", 0),
-                                "Matched Phenotypes": d.get("matched_phenotypes", ""),
-                                "Associated Genes": "|".join(d.get("associated_genes", []))
+                                "Term": p.get("term_name", ""),
+                                "ID": p.get("term_id", ""),
+                                "Uniqueness": f"{p.get('uniqueness_score', 0)*100:.1f}%",
+                                "Information Content": f"{p.get('information_content', 0):.2f}"
                             })
 
-                        disease_df = pd.DataFrame(disease_data)
+                        unique_df = pd.DataFrame(unique_data)
+                        st.dataframe(unique_df, use_container_width=True)
 
-                        # Combine into one CSV string
-                        csv_buffer = StringIO()
-                        csv_buffer.write("PhenoGenisis RESULTS\n\n")
+                    # Display recommendations if available
+                    if "recommendation" in novelty:
+                        st.subheader("Recommendations")
+                        st.info(novelty["recommendation"])
+            else:
+                st.warning(
+                    "No novelty analysis available. Please process clinical notes first.")
 
-                        csv_buffer.write("PHENOTYPES\n")
-                        phenotype_df.to_csv(csv_buffer, index=False)
+        # Export Results Button
+        st.subheader("Export Results")
 
-                        csv_buffer.write("\n\nDISEASE MATCHES\n")
-                        disease_df.to_csv(csv_buffer, index=False)
+        col1, col2 = st.columns(2)
 
-                        # Add diagnostic assessment
-                        csv_buffer.write("\n\nDIAGNOSTIC ASSESSMENT\n")
-                        if st.session_state.diagnosis_assessment:
-                            assessment = st.session_state.diagnosis_assessment
-                            csv_buffer.write(
-                                f"Confidence Level,{assessment.get('confidence_level', '')}\n")
-                            csv_buffer.write(
-                                f"Explanation,{assessment.get('explanation', '')}\n")
-                            csv_buffer.write(
-                                f"Recommendation,{assessment.get('recommendation', '')}\n")
+        with col1:
+            if st.button("Export to JSON"):
+                # Prepare export data
+                export_data = {
+                    "session_id": st.session_state.session_id,
+                    "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "file_content": st.session_state.file_content,
+                    "validated_phenotypes": st.session_state.phenotypes,
+                    "disease_matches": st.session_state.disease_matches,
+                    "diagnosis_assessment": st.session_state.diagnosis_assessment,
+                    "novelty_analysis": st.session_state.novelty_analysis
+                }
 
-                        # Add novelty analysis
-                        csv_buffer.write("\n\nNOVELTY ANALYSIS\n")
-                        if st.session_state.novelty_analysis:
-                            novelty = st.session_state.novelty_analysis
-                            csv_buffer.write(
-                                f"Novelty Score,{novelty.get('novelty_score', '')}\n")
-                            if "interpretation" in novelty:
-                                csv_buffer.write(
-                                    f"Level,{novelty['interpretation'].get('level', '')}\n")
-                                csv_buffer.write(
-                                    f"Explanation,{novelty['interpretation'].get('explanation', '')}\n")
+                # Convert to JSON string
+                json_str = json.dumps(export_data, indent=2)
 
-                            # Create a download link
+                # Create a download link
+                st.download_button(
+                    label="Download JSON",
+                    data=json_str,
+                    file_name=f"phenogenesis_results_{st.session_state.session_id}.json",
+                    mime="application/json"
+                )
 
-        else:
-            st.warning(
-                "No novelty analysis available. Please process clinical notes first.")
+        with col2:
+            if st.button("Export to CSV"):
+                # Prepare phenotypes CSV
+                phenotype_data = []
+                for p in st.session_state.phenotypes:
+                    phenotype_data.append({
+                        "Term ID": p.get("term_id", ""),
+                        "Term Name": p.get("term_name", ""),
+                        "Status": "Present" if p.get("present", True) else "Absent",
+                        "Confidence": p.get("confidence", 0),
+                        "Source": p.get("source", "extracted")
+                    })
 
+                phenotype_df = pd.DataFrame(phenotype_data)
+
+                # Prepare disease matches CSV
+                disease_data = []
+                for i, d in enumerate(st.session_state.disease_matches):
+                    disease_data.append({
+                        "Rank": i+1,
+                        "Disease": d.get("disease_name", ""),
+                        "ID": d.get("disease_id", ""),
+                        "Match Score": d.get("match_score", 0),
+                        "Matched Phenotypes": d.get("matched_phenotypes", ""),
+                        "Associated Genes": "|".join(d.get("associated_genes", []))
+                    })
+
+                disease_df = pd.DataFrame(disease_data)
+
+                # Combine into one CSV string
+                csv_buffer = StringIO()
+                csv_buffer.write("PhenoGenisis RESULTS\n\n")
+
+                csv_buffer.write("PHENOTYPES\n")
+                phenotype_df.to_csv(csv_buffer, index=False)
+
+                csv_buffer.write("\n\nDISEASE MATCHES\n")
+                disease_df.to_csv(csv_buffer, index=False)
+
+                # Add diagnostic assessment
+                csv_buffer.write("\n\nDIAGNOSTIC ASSESSMENT\n")
+                if st.session_state.diagnosis_assessment:
+                    assessment = st.session_state.diagnosis_assessment
+                    csv_buffer.write(
+                        f"Confidence Level,{assessment.get('confidence_level', '')}\n")
+                    csv_buffer.write(
+                        f"Explanation,{assessment.get('explanation', '')}\n")
+                    csv_buffer.write(
+                        f"Recommendation,{assessment.get('recommendation', '')}\n")
+
+                # Add novelty analysis
+                csv_buffer.write("\n\nNOVELTY ANALYSIS\n")
+                if st.session_state.novelty_analysis:
+                    novelty = st.session_state.novelty_analysis
+                    csv_buffer.write(
+                        f"Novelty Score,{novelty.get('novelty_score', '')}\n")
+                    if "interpretation" in novelty:
+                        csv_buffer.write(
+                            f"Level,{novelty['interpretation'].get('level', '')}\n")
+                        csv_buffer.write(
+                            f"Explanation,{novelty['interpretation'].get('explanation', '')}\n")
+
+                # Create a download link
+                st.download_button(
+                    label="Download CSV",
+                    data=csv_buffer.getvalue(),
+                    file_name=f"phenogenesis_results_{st.session_state.session_id}.csv",
+                    mime="text/csv"
+                )
 
 elif app_mode == "Interactive Diagnosis":
     st.header("Interactive Diagnosis")
